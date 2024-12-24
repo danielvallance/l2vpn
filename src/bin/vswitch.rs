@@ -6,7 +6,9 @@
 //!
 //! Usage: vswitch <port>
 
-use std::{env, process::ExitCode};
+use std::{env, net::UdpSocket, process::ExitCode};
+
+const MTU: usize = 1518;
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
@@ -18,7 +20,7 @@ fn main() -> ExitCode {
     }
 
     /* Get port number from command line argument */
-    let _port = match args[1].parse::<u32>() {
+    let port = match args[1].parse::<u32>() {
         Ok(port) => port,
         Err(e) => {
             eprintln!("Got error: {}", e);
@@ -27,5 +29,26 @@ fn main() -> ExitCode {
         }
     };
 
-    ExitCode::SUCCESS
+    /* Create UDP socket to receive Ethernet frames on */
+    let socket = match UdpSocket::bind(format!("0.0.0.0:{}", port)) {
+        Ok(socket) => socket,
+        Err(e) => {
+            eprintln!("Got error: {}", e);
+            return ExitCode::FAILURE;
+        }
+    };
+
+    /* Buffer to store received frames */
+    let mut buf: [u8; MTU] = [0; MTU];
+
+    loop {
+        let (_no_of_bytes, _src) = match socket.recv_from(&mut buf) {
+            Ok(res) => res,
+            Err(e) => {
+                eprintln!("Got error: {}", e);
+                eprintln!("Exiting.");
+                return ExitCode::FAILURE;
+            }
+        };
+    }
 }
