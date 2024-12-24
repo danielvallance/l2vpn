@@ -37,7 +37,7 @@ fn main() -> ExitCode {
     let port = match args[1].parse::<u32>() {
         Ok(port) => port,
         Err(e) => {
-            eprintln!("Got error: {}", e);
+            eprintln!("Got error while parsing port command line argument: {}", e);
             eprintln!("Could not parse {} as port number", args[1]);
             return ExitCode::FAILURE;
         }
@@ -63,11 +63,12 @@ fn main() -> ExitCode {
     let mut mac_table: HashMap<[u8; 6], SocketAddr> = HashMap::new();
 
     loop {
+        /* Get virtual ethernet frame from socket */
         let (no_of_bytes, src_vport) = match socket.recv_from(&mut buf) {
             Ok(res) => res,
             Err(e) => {
-                eprintln!("Got error: {}", e);
-                eprintln!("Exiting.");
+                eprintln!("Got error while listening on socket: {}", e);
+                eprintln!("Quitting");
                 return ExitCode::FAILURE;
             }
         };
@@ -76,25 +77,62 @@ fn main() -> ExitCode {
         let eth_frame = &buf[..no_of_bytes];
 
         /* Extract src and dst MAC addresses */
-        let dst_mac = &eth_frame[..6];
-        let src_mac = &eth_frame[6..12];
+        let dst_mac: [u8; 6] = eth_frame[..6].try_into().unwrap();
+        let src_mac: [u8; 6] = eth_frame[6..12].try_into().unwrap();
 
         println!(
             "vswitch: src_vport={}, src_mac={}, dst_mac={}",
             src_vport,
-            mac_string(src_mac),
-            mac_string(dst_mac)
+            mac_string(&src_mac),
+            mac_string(&dst_mac)
         );
 
         /*
          * If entry in MAC table contradicts source of
          * received frame, then update table
          */
-        if mac_table.get(src_mac) != Some(&src_vport) {
-            mac_table.insert(src_mac.try_into().unwrap(), src_vport);
+        if mac_table.get(&src_mac) != Some(&src_vport) {
+            mac_table.insert(src_mac, src_vport);
 
             /* Print updated MAC table */
-            println!("MAC table:\n{:?}", mac_table);
+            println!("MAC table:\n{:?}", &mac_table);
+        }
+
+        /*
+         * Forward the received packet out the appropriate vport(s)
+         */
+        match mac_table.get(&dst_mac) {
+            /* If the vport for the dst_mac is known, forward it */
+            Some(dst_vport) => {
+                if let Err(e) = socket.send_to(&buf, dst_vport) {
+                    eprintln!("Got error while forwarding frame unicast: {}", e);
+                    eprintln!("Quitting");
+                    return ExitCode::FAILURE;
+                }
+                println!("Unicast forwarded to: {}", mac_string(&dst_mac));
+            }
+            None => {
+                /*
+                 * If the dst_mac is the broadcast MAC, send to
+                 * every known vport except the src_vport
+                 */
+                if dst_mac == [0xFFu8; 6] {
+                    for (_, dst_vport) in mac_table.iter().filter(|(mac, _)| **mac != src_mac) {
+                        if let Err(e) = socket.send_to(&buf, dst_vport) {
+                            eprintln!("Got error while forwarding frame broadcast: {}", e);
+                            eprintln!("Quitting");
+                            return ExitCode::FAILURE;
+                        }
+                        println!("Broadcast forwarded to: {}", mac_string(&dst_mac));
+                    }
+                } else {
+                    /*
+                     * Discard frame if unicast destination MAC is unrecognised, as
+                     * ARP resolution is outside the scope of this project
+                     */
+                    println!("Dropped frame");
+                }
+            }
         }
     }
 }
