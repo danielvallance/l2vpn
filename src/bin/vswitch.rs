@@ -6,7 +6,12 @@
 //!
 //! Usage: vswitch <port>
 
-use std::{env, net::UdpSocket, process::ExitCode};
+use std::{
+    collections::HashMap,
+    env,
+    net::{SocketAddr, UdpSocket},
+    process::ExitCode,
+};
 
 const MTU: usize = 1518;
 
@@ -50,6 +55,13 @@ fn main() -> ExitCode {
     /* Buffer to store received frames */
     let mut buf: [u8; MTU] = [0; MTU];
 
+    /*
+     * I should implement some sort of ageing mechanism
+     * to reclaim unused memory however since this is
+     * a small project I will skip over this
+     */
+    let mut mac_table: HashMap<[u8; 6], SocketAddr> = HashMap::new();
+
     loop {
         let (no_of_bytes, src_vport) = match socket.recv_from(&mut buf) {
             Ok(res) => res,
@@ -73,5 +85,16 @@ fn main() -> ExitCode {
             mac_string(src_mac),
             mac_string(dst_mac)
         );
+
+        /*
+         * If entry in MAC table contradicts source of
+         * received frame, then update table
+         */
+        if mac_table.get(src_mac) != Some(&src_vport) {
+            mac_table.insert(src_mac.try_into().unwrap(), src_vport);
+
+            /* Print updated MAC table */
+            println!("MAC table:\n{:?}", mac_table);
+        }
     }
 }
