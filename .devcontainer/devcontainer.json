@@ -1,0 +1,8 @@
+{
+	"name": "Alpine",
+	"image": "mcr.microsoft.com/devcontainers/base:alpine-3.20",
+
+	// Installing cargo so I can build the Rust code
+	"onCreateCommand": "curl https://sh.rustup.rs -sSf | sh -s -- -y",
+	"postCreateCommand": ". $HOME/.cargo/env && cargo install aftman"
+}
