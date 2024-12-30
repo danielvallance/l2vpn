@@ -10,7 +10,13 @@ use nix::{
     libc::{ifreq, IFF_NO_PI, IFF_TAP, IFNAMSIZ},
 };
 use std::{
-    env, error::Error, ffi::c_char, fs::File, net::IpAddr, os::fd::AsRawFd, process::ExitCode,
+    env,
+    error::Error,
+    ffi::c_char,
+    fs::File,
+    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
+    os::fd::AsRawFd,
+    process::ExitCode,
 };
 
 /*
@@ -21,6 +27,16 @@ use std::{
  */
 const TUNTAP_DRIVER: u8 = b'T';
 const TUNTAP_SET_FLAGS: u8 = 202;
+
+/*
+ * Struct which contains information required for vport
+ * to communicate with vswitch
+ */
+struct Vport {
+    _tap_file: File,
+    _vswitch_addr: SocketAddr,
+    sock: UdpSocket,
+}
 
 /*
  * This macro generates a function called tunsetiff
@@ -40,24 +56,37 @@ fn main() -> ExitCode {
     }
 
     /* Get vswitch IP from command line argument */
-    let _vswitch_ip = match args[1].parse::<IpAddr>() {
+    let vswitch_ip = match args[1].parse::<Ipv4Addr>() {
         Ok(ip) => ip,
         Err(e) => {
             eprintln!(
-                "Got error while parsing IP address from command line argument: '{}'",
+                "Got error while parsing IPv4 address from command line argument: '{}'",
                 e
             );
-            eprintln!("Could not parse '{}' as IP address", args[1]);
+            eprintln!("Could not parse '{}' as IPv4 address", args[1]);
             return ExitCode::FAILURE;
         }
     };
 
     /* Get port number from command line argument */
-    let _port = match args[2].parse::<u32>() {
-        Ok(port) => port,
+    let vswitch_port = match args[2].parse::<u16>() {
+        Ok(vswitch_port) => vswitch_port,
         Err(e) => {
-            eprintln!("Got error while parsing port command line argument: '{}'", e);
+            eprintln!(
+                "Got error while parsing port command line argument: '{}'",
+                e
+            );
             eprintln!("Could not parse '{}' as port number", args[2]);
+            return ExitCode::FAILURE;
+        }
+    };
+
+    /* Initialise vport struct */
+    let _vport = match initialise_vport(vswitch_ip, vswitch_port) {
+        Ok(vport) => vport,
+        Err(e) => {
+            eprintln!("Got error while initialising vport: '{}'", e);
+            eprintln!("Quitting");
             return ExitCode::FAILURE;
         }
     };
@@ -70,8 +99,7 @@ fn main() -> ExitCode {
 /// and insert it into the L2VPN network we are setting up
 ///
 /// Returns the /dev/net/tun file handler on success
-fn _create_tap_intf(ul_intf: &str) -> Result<File, Box<dyn Error>> {
-
+fn create_tap_intf(ul_intf: &str) -> Result<File, Box<dyn Error>> {
     /*
      * Ensure the ul_intf name is valid ASCII and is <= IFNAMSIZ bytes
      *
@@ -113,4 +141,38 @@ fn _create_tap_intf(ul_intf: &str) -> Result<File, Box<dyn Error>> {
             Err(e) => Err(format!("tunsetiff failed with error: '{}'", e).into()),
         }
     }
+}
+
+/// Initialise vport struct so that it is
+/// ready to communicate on the L2VPN network
+fn initialise_vport(vswitch_ip: Ipv4Addr, vswitch_port: u16) -> Result<Vport, Box<dyn Error>> {
+    /* Configure tap interface tap0 and return file handle to it */
+    let tap_file = create_tap_intf("tap0")?;
+
+    /*
+     * Create UDP socket which the vport will use to communicate with the vswitch
+     *
+     * It communicates on any available IP and a random ephemeral port, which is fine
+     * as the other vport requires the address of the tap interface, not this socket
+     */
+    let sock = UdpSocket::bind("0.0.0.0:0".to_string())?;
+
+    /*
+     * Store address of vswitch as for the L2VPN to function
+     * properly, it must be able to communicate with the vswitch
+     */
+    let vswitch_addr = SocketAddr::new(IpAddr::V4(vswitch_ip), vswitch_port);
+
+    let vport = Vport {
+        _tap_file: tap_file,
+        sock,
+        _vswitch_addr: vswitch_addr,
+    };
+
+    println!(
+        "Initialised vport using tap interface tun0, and socket {:?}",
+        vport.sock
+    );
+
+    Ok(vport)
 }
