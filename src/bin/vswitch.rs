@@ -6,6 +6,7 @@
 //!
 //! Usage: vswitch <port>
 
+use l2vpn::utilities::mac_string;
 use std::{
     collections::HashMap,
     env,
@@ -14,15 +15,6 @@ use std::{
 };
 
 const MTU: usize = 1518;
-
-/// Returns string representation of passed MAC bytes
-fn mac_string(mac: &[u8]) -> String {
-    mac.iter()
-        .take(6)
-        .map(|b| format!("{:02x}", b))
-        .collect::<Vec<String>>()
-        .join(":")
-}
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();

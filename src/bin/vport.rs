@@ -5,6 +5,7 @@
 //!
 //! Usage: vport <vswitch_ip> <vswitch_port>
 
+use l2vpn::utilities::mac_string;
 use nix::{
     ioctl_write_ptr,
     libc::{ifreq, IFF_NO_PI, IFF_TAP, IFNAMSIZ},
@@ -14,9 +15,11 @@ use std::{
     error::Error,
     ffi::c_char,
     fs::File,
+    io::Read,
     net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     os::fd::AsRawFd,
     process::ExitCode,
+    thread,
 };
 
 /*
@@ -28,13 +31,16 @@ use std::{
 const TUNTAP_DRIVER: u8 = b'T';
 const TUNTAP_SET_FLAGS: u8 = 202;
 
+const ETHER_MTU: usize = 1518;
+const ETHER_MIN: usize = 64;
+
 /*
  * Struct which contains information required for vport
  * to communicate with vswitch
  */
 struct Vport {
-    _tap_file: File,
-    _vswitch_addr: SocketAddr,
+    tap_file: File,
+    vswitch_addr: SocketAddr,
     sock: UdpSocket,
 }
 
@@ -82,7 +88,7 @@ fn main() -> ExitCode {
     };
 
     /* Initialise vport struct */
-    let _vport = match initialise_vport(vswitch_ip, vswitch_port) {
+    let mut vport = match initialise_vport(vswitch_ip, vswitch_port) {
         Ok(vport) => vport,
         Err(e) => {
             eprintln!("Got error while initialising vport: '{}'", e);
@@ -91,7 +97,21 @@ fn main() -> ExitCode {
         }
     };
 
-    ExitCode::SUCCESS
+    /*
+     * Start thread which takes packets from
+     * tap interface and forwards to vswitch
+     */
+    let tap_to_vswitch_handle = thread::spawn(move || tap_to_vswitch(&mut vport));
+
+    let mut exit_code = ExitCode::SUCCESS;
+
+    /* Wait for tap_to_vswitch thread to finish */
+    if let Err(e) = tap_to_vswitch_handle.join() {
+        eprintln!("tap_to_vswitch failed with error: '{:?}'", e);
+        exit_code = ExitCode::FAILURE;
+    }
+
+    exit_code
 }
 
 /// Create and configure tap interface which will
@@ -164,9 +184,9 @@ fn initialise_vport(vswitch_ip: Ipv4Addr, vswitch_port: u16) -> Result<Vport, Bo
     let vswitch_addr = SocketAddr::new(IpAddr::V4(vswitch_ip), vswitch_port);
 
     let vport = Vport {
-        _tap_file: tap_file,
+        tap_file,
         sock,
-        _vswitch_addr: vswitch_addr,
+        vswitch_addr,
     };
 
     println!(
@@ -175,4 +195,55 @@ fn initialise_vport(vswitch_ip: Ipv4Addr, vswitch_port: u16) -> Result<Vport, Bo
     );
 
     Ok(vport)
+}
+
+/// Take frame which the tap interface receives
+/// and inject it into the L2VPN network by forwarding
+/// it to the vswitch
+fn tap_to_vswitch(vport: &mut Vport) {
+    /* Buffer to store frames the tap interface receives */
+    let mut buf = [0u8; ETHER_MTU];
+
+    /*
+     * Main loop which takes packets which the tap
+     * interface receives and forwards them to the vswitch
+     */
+    loop {
+        /* Fill buffer with bytes read from tap interface */
+        let bytes_read = vport.tap_file.read(&mut buf).unwrap();
+
+        /* If EOF reached, panic */
+        if bytes_read == 0 {
+            panic!("Reached EOF for /dev/net/tun which should not happen, quitting");
+        }
+
+        /* Log any runt frames received, but do not terminate loop */
+        if bytes_read < ETHER_MIN {
+            eprintln!("Received runt frame which was {} bytes long", bytes_read);
+            continue;
+        }
+
+        /* Forward received frame to vswitch */
+        let bytes_sent = vport
+            .sock
+            .send_to(&buf[..bytes_read], vport.vswitch_addr)
+            .unwrap();
+
+        /* If not all the bytes could be forwarded, fail */
+        if bytes_sent != bytes_read {
+            panic!(
+                "Received frame with {} bytes but forwarded it with {} bytes. Quitting.",
+                bytes_read, bytes_sent
+            );
+        }
+
+        /* Log frame */
+        let dst_mac = mac_string(&buf[0..6]);
+        let src_mac = mac_string(&buf[6..12]);
+        let ether_type = ((buf[12] as u16) << 8) + buf[13] as u16;
+        println!(
+            "Frame forwarded to vswitch: dst={}, src={}, type={}, size={}",
+            dst_mac, src_mac, ether_type, bytes_read
+        );
+    }
 }
