@@ -5,7 +5,7 @@
 //!
 //! Usage: vport <vswitch_ip> <vswitch_port>
 
-use l2vpn::utilities::mac_string;
+use l2vpn::utilities::get_frame_log_msg;
 use nix::{
     ioctl_write_ptr,
     libc::{ifreq, IFF_NO_PI, IFF_TAP, IFNAMSIZ},
@@ -15,7 +15,7 @@ use std::{
     error::Error,
     ffi::c_char,
     fs::File,
-    io::Read,
+    io::{Read, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     os::fd::AsRawFd,
     process::ExitCode,
@@ -97,11 +97,25 @@ fn main() -> ExitCode {
         }
     };
 
+    let mut vport_clone = match clone_vport(&vport) {
+        Ok(vport_clone) => vport_clone,
+        Err(e) => {
+            eprintln!("Failed to clone vport with error: '{}'", e);
+            return ExitCode::FAILURE;
+        }
+    };
+
     /*
      * Start thread which takes packets from
      * tap interface and forwards to vswitch
      */
     let tap_to_vswitch_handle = thread::spawn(move || tap_to_vswitch(&mut vport));
+
+    /*
+     * Start thread which takes packets received
+     * from the vswitch and forwards them to tap intf
+     */
+    let vswitch_to_tap_handle = thread::spawn(move || vswitch_to_tap(&mut vport_clone));
 
     let mut exit_code = ExitCode::SUCCESS;
 
@@ -109,6 +123,12 @@ fn main() -> ExitCode {
     if let Err(e) = tap_to_vswitch_handle.join() {
         eprintln!("tap_to_vswitch failed with error: '{:?}'", e);
         exit_code = ExitCode::FAILURE;
+    }
+
+    /* Wait for vswitch_to_tap thread to finish */
+    if let Err(e) = vswitch_to_tap_handle.join() {
+        eprintln!("vswitch_to_tap failed with error: '{:?}'", e);
+        return ExitCode::FAILURE;
     }
 
     exit_code
@@ -197,6 +217,35 @@ fn initialise_vport(vswitch_ip: Ipv4Addr, vswitch_port: u16) -> Result<Vport, Bo
     Ok(vport)
 }
 
+/// The tap file in the vport will be read from by one
+/// thread and written to by another during the operation
+/// of the L2VPN session.
+///
+/// These operations require a mutable reference to the
+/// tap_file File struct, and since we cannot have 2 mutable
+/// references to the same File, I wrote this clone_vport
+/// method which calls File::try_clone which returns another
+/// File struct which refers to the same file handle, thereby
+/// creating 2 separate mutable references to the same file handle
+/// (but different File structs)
+///
+/// While reading to and writing from the same file in 2 different
+/// threads is normally unsafe, since this file represents /dev/net/tun
+/// which is the network I/O interface to a tap/tun interface, this is fine
+fn clone_vport(vport: &Vport) -> Result<Vport, Box<dyn Error>> {
+    Ok(Vport {
+        tap_file: vport.tap_file.try_clone()?,
+        vswitch_addr: vport.vswitch_addr,
+        /*
+         * Reads and writes to UdpSockets only require an
+         * immutable reference so this is technically not required,
+         * however doing this allows me to bundle everything into
+         * the Vport struct which is easier
+         */
+        sock: vport.sock.try_clone()?,
+    })
+}
+
 /// Take frame which the tap interface receives
 /// and inject it into the L2VPN network by forwarding
 /// it to the vswitch
@@ -238,12 +287,43 @@ fn tap_to_vswitch(vport: &mut Vport) {
         }
 
         /* Log frame */
-        let dst_mac = mac_string(&buf[0..6]);
-        let src_mac = mac_string(&buf[6..12]);
-        let ether_type = ((buf[12] as u16) << 8) + buf[13] as u16;
-        println!(
-            "Frame forwarded to vswitch: dst={}, src={}, type={}, size={}",
-            dst_mac, src_mac, ether_type, bytes_read
-        );
+        println!("{}", get_frame_log_msg(&buf[..bytes_read]));
+    }
+}
+
+/// Takes frames received from the vswitch in
+/// the L2VPN network and sends to the tap interface
+/// which will allow it to exit the emulated L2VPN network
+fn vswitch_to_tap(vport: &mut Vport) {
+    /* Buffer to store frames received from the vswitch */
+    let mut buf = [0u8; ETHER_MTU];
+
+    /*
+     * Main loop which takes packets received from the
+     * vswitch and forwards them to the tap interface
+     */
+    loop {
+        /* Get virtual ethernet frame from socket */
+        let (bytes_read, _) = vport.sock.recv_from(&mut buf).unwrap();
+
+        /* Log any runt frames received, but do not terminate loop */
+        if bytes_read < ETHER_MIN {
+            eprintln!("Received runt frame which was {} bytes long", bytes_read);
+            continue;
+        }
+
+        /* Forward virtual ethernet frame to tap interface */
+        let bytes_sent = vport.tap_file.write(&buf[..bytes_read]).unwrap();
+
+        /* If not all the bytes could be forwarded, fail */
+        if bytes_sent != bytes_read {
+            panic!(
+                "Received frame with {} bytes but forwarded it with {} bytes. Quitting.",
+                bytes_read, bytes_sent
+            );
+        }
+
+        /* Log frame */
+        println!("{}", get_frame_log_msg(&buf[..bytes_read]));
     }
 }

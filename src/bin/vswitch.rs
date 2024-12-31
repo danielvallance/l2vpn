@@ -6,7 +6,7 @@
 //!
 //! Usage: vswitch <port>
 
-use l2vpn::utilities::mac_string;
+use l2vpn::utilities::{get_frame_log_msg, mac_string};
 use std::{
     collections::HashMap,
     env,
@@ -73,10 +73,9 @@ fn main() -> ExitCode {
         let src_mac: [u8; 6] = eth_frame[6..12].try_into().unwrap();
 
         println!(
-            "vswitch: src_vport={}, src_mac={}, dst_mac={}",
+            "vswitch: received frame ({}) from src_vport='{}'",
+            get_frame_log_msg(eth_frame),
             src_vport,
-            mac_string(&src_mac),
-            mac_string(&dst_mac)
         );
 
         /*
