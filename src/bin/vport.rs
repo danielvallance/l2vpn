@@ -13,7 +13,7 @@ use nix::{
 use std::{
     env,
     error::Error,
-    ffi::c_char,
+    ffi::{c_char, c_int},
     fs::File,
     io::{Read, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
@@ -50,7 +50,7 @@ struct Vport {
  * /dev/net/tun to the device specified in the ifreq struct,
  * and configures it with the flags set in the ifreq struct
  */
-ioctl_write_ptr!(tunsetiff, TUNTAP_DRIVER, TUNTAP_SET_FLAGS, ifreq);
+ioctl_write_ptr!(tunsetiff, TUNTAP_DRIVER, TUNTAP_SET_FLAGS, c_int);
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
@@ -176,7 +176,7 @@ fn create_tap_intf(ul_intf: &str) -> Result<File, Box<dyn Error>> {
 
     /* Perform the ioctl call to configure the tap interface */
     unsafe {
-        match tunsetiff(tap_file.as_raw_fd(), &ifr) {
+        match tunsetiff(tap_file.as_raw_fd(), &mut ifr as *mut _ as *const c_int) {
             Ok(_) => Ok(tap_file),
             Err(e) => Err(format!("tunsetiff failed with error: '{}'", e).into()),
         }
