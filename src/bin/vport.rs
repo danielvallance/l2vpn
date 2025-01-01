@@ -33,6 +33,9 @@ const TUNTAP_SET_FLAGS: u8 = 202;
 
 const ETHER_MTU: usize = 1518;
 const ETHER_MIN: usize = 64;
+const ETHER_HDR: usize = 14;
+const ETHER_FCS: usize = 4;
+const ETHER_DATA_MIN: usize = ETHER_MIN - ETHER_HDR - ETHER_FCS;
 
 /*
  * Struct which contains information required for vport
@@ -259,17 +262,17 @@ fn tap_to_vswitch(vport: &mut Vport) {
      */
     loop {
         /* Fill buffer with bytes read from tap interface */
-        let bytes_read = vport.tap_file.read(&mut buf).unwrap();
+        let mut bytes_read = vport.tap_file.read(&mut buf).unwrap();
 
         /* If EOF reached, panic */
         if bytes_read == 0 {
             panic!("Reached EOF for /dev/net/tun which should not happen, quitting");
         }
 
-        /* Log any runt frames received, but do not terminate loop */
-        if bytes_read < ETHER_MIN {
-            eprintln!("Received runt frame which was {} bytes long", bytes_read);
-            continue;
+        /* If data is less than 46 bytes, add some padding to the buffer */
+        if bytes_read < ETHER_DATA_MIN {
+            buf[bytes_read..ETHER_DATA_MIN].fill(0);
+            bytes_read = ETHER_DATA_MIN;
         }
 
         /* Forward received frame to vswitch */
@@ -281,7 +284,7 @@ fn tap_to_vswitch(vport: &mut Vport) {
         /* If not all the bytes could be forwarded, fail */
         if bytes_sent != bytes_read {
             panic!(
-                "Received frame with {} bytes but forwarded it with {} bytes. Quitting.",
+                "Frame was {} bytes but could only send {} bytes. Quitting.",
                 bytes_read, bytes_sent
             );
         }
