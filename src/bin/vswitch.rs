@@ -76,7 +76,7 @@ fn main() -> ExitCode {
 
         println!(
             "vswitch: received frame ({}) from src_vport='{}'",
-            get_frame_log_msg(eth_frame),
+            get_frame_log_msg(eth_frame, no_of_bytes),
             src_vport,
         );
 

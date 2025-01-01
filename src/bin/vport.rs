@@ -294,7 +294,10 @@ fn tap_to_vswitch(vport: &mut Vport) {
         }
 
         /* Log frame */
-        println!("Sent frame: {}", get_frame_log_msg(&buf[..bytes_read]));
+        println!(
+            "Sent frame: {}",
+            get_frame_log_msg(&buf[..bytes_read], bytes_read)
+        );
     }
 }
 
@@ -331,6 +334,9 @@ fn vswitch_to_tap(vport: &mut Vport) {
         }
 
         /* Log frame */
-        println!("Received frame: {}", get_frame_log_msg(&buf[..bytes_read]));
+        println!(
+            "Received frame: {}",
+            get_frame_log_msg(&buf[..bytes_read], bytes_read)
+        );
     }
 }

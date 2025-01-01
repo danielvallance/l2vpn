@@ -10,15 +10,12 @@ pub fn mac_string(mac: &[u8]) -> String {
 }
 
 /// Returns log message with details of frame
-pub fn get_frame_log_msg(frame: &[u8]) -> String {
+pub fn get_frame_log_msg(frame: &[u8], size: usize) -> String {
     let dst_mac = mac_string(&frame[0..6]);
     let src_mac = mac_string(&frame[6..12]);
     let ether_type = ((frame[12] as u16) << 8) + frame[13] as u16;
     format!(
         "dst_mac={}, src_mac={}, type={}, size={}",
-        dst_mac,
-        src_mac,
-        ether_type,
-        frame.len()
+        dst_mac, src_mac, ether_type, size
     )
 }
