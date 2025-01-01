@@ -1,0 +1,26 @@
+services:
+  vswitch:
+    build: .
+    networks:
+      - l2vpn-net
+    command: tail -f /dev/null
+
+  vport_a:
+    build: .
+    networks:
+      - l2vpn-net
+    cap_add:
+      - NET_ADMIN
+    command: sh -c "/l2vpn/setup.sh 10.0.0.1/24 && tail -f /dev/null"
+
+  vport_b:
+    build: .
+    networks:
+      - l2vpn-net
+    cap_add:
+      - NET_ADMIN
+    command: sh -c "/l2vpn/setup.sh 10.0.0.2/24 && tail -f /dev/null"
+
+networks:
+  l2vpn-net:
+    driver: bridge
