@@ -86,7 +86,7 @@ fn main() -> ExitCode {
             mac_table.insert(src_mac, src_vport);
 
             /* Print updated MAC table */
-            println!("MAC table:\n{:?}", &mac_table);
+            print_mac_table(&mac_table);
         }
 
         /*
@@ -125,5 +125,14 @@ fn main() -> ExitCode {
                 }
             }
         }
+    }
+}
+
+/// Print MAC table in human readable format
+fn print_mac_table(mac_table: &HashMap<[u8; 6], SocketAddr>) {
+    println!("MAC Table:");
+
+    for (mac_addr, socket) in mac_table.iter() {
+        println!("\t{}: {}", mac_string(mac_addr), socket);
     }
 }

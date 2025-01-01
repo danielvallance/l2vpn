@@ -210,7 +210,7 @@ fn initialise_vport(vswitch_ip: Ipv4Addr, vswitch_port: u16) -> Result<Vport, Bo
     };
 
     println!(
-        "Initialised vport using tap interface tun0, and socket {:?}",
+        "Initialised vport using tap interface tap0, and socket {:?}",
         vport.sock
     );
 
@@ -287,7 +287,7 @@ fn tap_to_vswitch(vport: &mut Vport) {
         }
 
         /* Log frame */
-        println!("{}", get_frame_log_msg(&buf[..bytes_read]));
+        println!("Sent frame: {}", get_frame_log_msg(&buf[..bytes_read]));
     }
 }
 
@@ -324,6 +324,6 @@ fn vswitch_to_tap(vport: &mut Vport) {
         }
 
         /* Log frame */
-        println!("{}", get_frame_log_msg(&buf[..bytes_read]));
+        println!("Received frame: {}", get_frame_log_msg(&buf[..bytes_read]));
     }
 }
