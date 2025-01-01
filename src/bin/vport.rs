@@ -108,6 +108,8 @@ fn main() -> ExitCode {
         }
     };
 
+    println!("Starting vport");
+
     /*
      * Start thread which takes packets from
      * tap interface and forwards to vswitch
@@ -133,6 +135,8 @@ fn main() -> ExitCode {
         eprintln!("vswitch_to_tap failed with error: '{:?}'", e);
         return ExitCode::FAILURE;
     }
+
+    println!("Terminating vport");
 
     exit_code
 }

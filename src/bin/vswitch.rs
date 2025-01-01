@@ -44,6 +44,8 @@ fn main() -> ExitCode {
         }
     };
 
+    println!("Starting vswitch");
+
     /* Buffer to store received frames */
     let mut buf: [u8; MTU] = [0; MTU];
 
