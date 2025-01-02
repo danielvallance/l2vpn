@@ -42,3 +42,7 @@ Here is a basic demo which:
 * Shows the logs on the vswitch and vport, showing that the traffic traversed the emulated L2VPN network
 * Stops the vswitch, and retries the pings again, proving that the vswitch is necessary for the pings to work over the L2VPN network
 * Tears down the emulated L2VPN network
+
+
+https://github.com/user-attachments/assets/e882b66e-e32e-4a2d-a063-92b779681b0d
+
